@@ -918,11 +918,22 @@ function cleanup() {
   }
 }
 
+// --- Stale input replay guard ---
+// OpenDeck queues events sent while a plugin is not connected and replays the whole
+// queue on every registration without ever clearing it. Old dialDown/touchTap/keyDown
+// events would then be re-applied on each plugin (re)install or restart, e.g. toggling
+// master mute. The replay arrives as one burst immediately after registering, so
+// ignore user-input events received within a short window after registration.
+const REPLAY_GUARD_MS = 750;
+const INPUT_EVENTS = new Set(["keyDown", "keyUp", "dialDown", "dialUp", "dialRotate", "touchTap"]);
+let inputAcceptedAfter = Infinity;
+
 // --- WebSocket connection ---
 const ws = new WebSocket(`ws://localhost:${port}`);
 
 ws.on("open", () => {
   // Register this plugin with OpenDeck
+  inputAcceptedAfter = Date.now() + REPLAY_GUARD_MS;
   send({ event: registerEvent, uuid: pluginUUID });
   console.log(`Plugin registered: ${pluginUUID}`);
   startMonitor();
@@ -937,6 +948,11 @@ ws.on("message", (raw) => {
   }
 
   const { event, action, context, payload } = msg;
+
+  if (INPUT_EVENTS.has(event) && Date.now() < inputAcceptedAfter) {
+    console.log(`Ignoring replayed ${event} for ${action} received right after registration`);
+    return;
+  }
 
   switch (event) {
     case "willAppear": {
