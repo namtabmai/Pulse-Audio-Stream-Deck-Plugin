@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Steam Game Settings</title>
+  <link rel="stylesheet" href="sdpi.css" />
+</head>
+<body>
+  <div class="sdpi-wrapper">
+    <div class="sdpi-heading">Steam Game</div>
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Detected</div>
+      <div class="sdpi-item-value">
+        <span id="detectedGame">Checking...</span>
+      </div>
+    </div>
+    <div class="sdpi-info">Controls the audio of whichever Steam game is currently running. The game is detected automatically when it starts playing audio.</div>
+
+    <div class="sdpi-heading">Display</div>
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Custom Name</div>
+      <div class="sdpi-item-value">
+        <input type="text" id="customName" placeholder="Leave blank for game name" />
+      </div>
+    </div>
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Options</div>
+      <div class="sdpi-item-value">
+        <input type="checkbox" id="showName" checked />
+        <label for="showName">Show game name</label>
+      </div>
+    </div>
+    <div class="sdpi-item">
+      <div class="sdpi-item-label"></div>
+      <div class="sdpi-item-value">
+        <input type="checkbox" id="showBar" checked />
+        <label for="showBar">Show volume bar</label>
+      </div>
+    </div>
+    <div class="sdpi-item">
+      <div class="sdpi-item-label"></div>
+      <div class="sdpi-item-value">
+        <input type="checkbox" id="showPercent" />
+        <label for="showPercent">Show percentage</label>
+      </div>
+    </div>
+
+    <div class="sdpi-heading">Button Action</div>
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Action</div>
+      <div class="sdpi-item-value">
+        <select id="direction">
+          <option value="up">Up (increase)</option>
+          <option value="down">Down (decrease)</option>
+          <option value="mute">Mute Toggle</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="sdpi-heading">Volume Step</div>
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Step Size</div>
+      <div class="sdpi-item-value">
+        <input type="range" id="volumeStep" min="1" max="20" value="5" />
+        <span id="volumeStepLabel">5%</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="sdpi-common.js"></script>
+  <script>
+    var refreshTimer = null;
+
+    initPI(
+      function onReady(ws, ai) {
+        function requestGame() {
+          ws.send(JSON.stringify({
+            event: "sendToPlugin",
+            action: ai.action,
+            context: uuid,
+            payload: { request: "getSteamGame" }
+          }));
+        }
+        requestGame();
+        refreshTimer = setInterval(requestGame, 3000);
+        if (settings.direction) document.getElementById("direction").value = settings.direction;
+      },
+      function onMessage(msg) {
+        if (msg.event === "sendToPropertyInspector") {
+          var payload = msg.payload || {};
+          if (payload.event === "steamGame") {
+            var g = payload.game;
+            document.getElementById("detectedGame").textContent =
+              g ? g.name + " (" + g.appId + ")" : "No game running";
+          }
+        }
+        if (msg.event === "didReceiveSettings" && settings.direction) {
+          document.getElementById("direction").value = settings.direction;
+        }
+      }
+    );
+
+    function saveSettings() {
+      settings.direction = document.getElementById("direction").value;
+      saveDisplaySettings();
+      saveVolumeStep();
+      sendSettings();
+    }
+
+    document.getElementById("volumeStep").addEventListener("input", function () {
+      document.getElementById("volumeStepLabel").textContent = this.value + "%";
+    });
+
+    document.getElementById("direction").addEventListener("change", saveSettings);
+    document.getElementById("customName").addEventListener("change", saveSettings);
+    document.getElementById("showName").addEventListener("change", saveSettings);
+    document.getElementById("showBar").addEventListener("change", saveSettings);
+    document.getElementById("showPercent").addEventListener("change", saveSettings);
+    document.getElementById("volumeStep").addEventListener("change", saveSettings);
+  </script>
+</body>
+</html>

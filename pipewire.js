@@ -121,6 +121,7 @@ function parsePwDump(callback) {
             id: node.id,
             name: props["application.name"] || props["node.name"] || `Node ${node.id}`,
             appName: props["application.name"] || null,
+            pid: parseInt(props["application.process.id"], 10) || null,
           });
         } else if (mediaClass === "Audio/Sink") {
           sinks.push({

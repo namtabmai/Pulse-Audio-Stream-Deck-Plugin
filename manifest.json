@@ -112,6 +112,37 @@
       ]
     },
     {
+      "UUID": "com.sfgrimes.pipewire-audio.steamgame",
+      "Name": "Steam Game Volume",
+      "Icon": "icons/game-volume-up",
+      "Tooltip": "Increase, decrease or mute the currently running Steam game",
+      "Controllers": [
+        "Keypad",
+        "Encoder"
+      ],
+      "Encoder": {
+        "layout": "$B1",
+        "TriggerDescription": {
+          "Rotate": "Adjust game volume",
+          "Push": "Toggle game mute",
+          "Touch": "Toggle game mute"
+        }
+      },
+      "PropertyInspectorPath": "propertyInspector/steamGameSettings.html",
+      "States": [
+        {
+          "Image": "icons/game-volume-up",
+          "Name": "Unmuted",
+          "TitleAlignment": "top"
+        },
+        {
+          "Image": "icons/game-mute",
+          "Name": "Muted",
+          "TitleAlignment": "top"
+        }
+      ]
+    },
+    {
       "UUID": "com.sfgrimes.pipewire-audio.outputvolume",
       "Name": "Output Volume",
       "Icon": "icons/output-volume-up",
