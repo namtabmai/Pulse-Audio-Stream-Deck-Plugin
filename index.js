@@ -1,6 +1,7 @@
 const WebSocket = require("ws");
 const { spawn } = require("child_process");
 const pipewire = require("./pipewire");
+const steam = require("./steam");
 
 // --- CLI arg parsing ---
 // OpenDeck launches plugins with: -port <port> -pluginUUID <uuid> -registerEvent <event> -info <json>
@@ -35,7 +36,13 @@ function actionMeta(action) {
   else if (short.startsWith("output") || short === "switchoutput") iconType = "output";
   else if (short.startsWith("input") || short === "switchinput") iconType = "input";
   else if (short === "pushtotalk") iconType = "microphone";
+  else if (short === "steamgame") iconType = "game";
   return { short, iconType };
+}
+
+// Actions that control a set of app stream node IDs (rather than a single node)
+function isMultiStream(short) {
+  return short.startsWith("app") || short === "steamgame";
 }
 
 // --- WebSocket helpers ---
@@ -86,6 +93,9 @@ function sendFeedback(context, payload) {
   send({ event: "setFeedback", context, payload });
 }
 
+// Gamepad glyph (24×24 viewBox) used by the Steam game action
+const GAMEPAD_PATH = `<path d="M7 7h10a5 5 0 0 1 4.9 6l-.8 4a2.5 2.5 0 0 1-4.3 1.2L14.6 16H9.4l-2.2 2.2A2.5 2.5 0 0 1 2.9 17l-.8-4A5 5 0 0 1 7 7z" fill="#fff"/><path d="M6 10.5h1.5V9h1.5v1.5h1.5V12H9v1.5H7.5V12H6z" fill="#000"/><circle cx="15.5" cy="10.5" r="1" fill="#000"/><circle cx="17.5" cy="12.5" r="1" fill="#000"/>`;
+
 // --- 48×48 SVG icons for the $B1 encoder layout icon slot ---
 const ENCODER_ICONS = {
   speaker: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48"><path d="M3 9v6h4l5 5V4L7 9H3z" fill="#fff"/><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" fill="#fff"/><path d="M19 12c0 2.87-1.65 5.36-4 6.58v2.16c3.44-1.35 6-4.73 6-8.74s-2.56-7.39-6-8.74v2.16c2.35 1.22 4 3.71 4 6.58z" fill="#fff"/></svg>`,
@@ -93,6 +103,7 @@ const ENCODER_ICONS = {
   app: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z" fill="#fff"/></svg>`,
   output: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48"><path d="M6 1h12a2 2 0 0 1 2 2v18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2z" fill="none" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="15" r="5" fill="none" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="15" r="2" fill="#fff"/><circle cx="12" cy="5" r="1.5" fill="#fff"/></svg>`,
   input: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" fill="#fff"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" fill="#fff"/></svg>`,
+  game: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48">${GAMEPAD_PATH}</svg>`,
 };
 
 // --- SVG layout presets ---
@@ -131,6 +142,7 @@ const LAYOUTS = {
 <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" fill="#fff"/>
 <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" fill="#fff"/>
 </g>`,
+      game: `<g transform="translate(62,2) scale(3.2)" opacity="0.15">${GAMEPAD_PATH}</g>`,
     },
   },
   Keypad: {
@@ -167,17 +179,23 @@ const LAYOUTS = {
 <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" fill="#fff"/>
 <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" fill="#fff"/>
 </g>`,
+      game: `<g transform="translate(24,4) scale(4.0)" opacity="0.15">${GAMEPAD_PATH}</g>`,
     },
   },
 };
 
 // --- Unified SVG rendering ---
-function buildNameText(title, yCenter, L) {
-  if (title.length > L.nameWrapThreshold) {
-    const mid = title.lastIndexOf(" ", Math.ceil(title.length / 2));
+function escapeXml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function buildNameText(rawTitle, yCenter, L) {
+  const title = escapeXml(rawTitle);
+  if (rawTitle.length > L.nameWrapThreshold) {
+    const mid = rawTitle.lastIndexOf(" ", Math.ceil(rawTitle.length / 2));
     if (mid > 0) {
-      const l1 = title.substring(0, mid);
-      const l2 = title.substring(mid + 1);
+      const l1 = escapeXml(rawTitle.substring(0, mid));
+      const l2 = escapeXml(rawTitle.substring(mid + 1));
       return `<text x="${L.cx}" y="${yCenter + L.nameWrapYOff1}" text-anchor="middle" fill="#fff" font-size="${L.nameWrapSize}" font-family="sans-serif" font-weight="bold" textLength="${L.barW}" lengthAdjust="spacingAndGlyphs">${l1}</text>
 <text x="${L.cx}" y="${yCenter + L.nameWrapYOff2}" text-anchor="middle" fill="#fff" font-size="${L.nameWrapSize}" font-family="sans-serif" font-weight="bold" textLength="${L.barW}" lengthAdjust="spacingAndGlyphs">${l2}</text>`;
     }
@@ -348,7 +366,7 @@ function getTargetForAction(short) {
   return null;
 }
 
-const COMBINED_VOL = ["volume", "micvolume", "appvolume", "outputvolume", "inputvolume"];
+const COMBINED_VOL = ["volume", "micvolume", "appvolume", "outputvolume", "inputvolume", "steamgame"];
 
 function displayOpts(ctx) {
   const showName = ctx.settings && ctx.settings.showName !== undefined ? ctx.settings.showName : true;
@@ -430,6 +448,25 @@ function refreshTitle(ctx) {
     pipewire.resolveSourceId(inputName, (id) => {
       ctx.resolvedPTTId = id;
       setPTTImage(ctx, ctx.pttActive || false);
+    });
+    return;
+  }
+
+  // For the Steam game action, find whichever Steam game currently has audio streams
+  if (ctx.short === "steamgame") {
+    steam.getRunningGame((game) => {
+      if (!contexts.has(ctx.context)) return;
+      if (!game) {
+        ctx.nodeName = "No Game";
+        ctx.resolvedAppIds = [];
+        ctx.steamAppId = null;
+        updateDisplay(ctx, null);
+        return;
+      }
+      ctx.nodeName = game.name;
+      ctx.resolvedAppIds = game.ids;
+      ctx.steamAppId = game.appId;
+      pipewire.getVolume(game.ids[0], (data) => updateDisplay(ctx, data));
     });
     return;
   }
@@ -611,7 +648,7 @@ function refreshVolume(ctx) {
     });
     return;
   }
-  if (ctx.short.startsWith("app")) {
+  if (isMultiStream(ctx.short)) {
     if (!ctx.resolvedAppIds || ctx.resolvedAppIds.length === 0) return;
     pipewire.getVolume(ctx.resolvedAppIds[0], (data) => updateDisplay(ctx, data));
     return;
@@ -670,6 +707,7 @@ function pushAppListToOpenPIs() {
 function resolveTarget(short, ctx, settings) {
   if (short.startsWith("volume") || short === "mutetoggle") return "@DEFAULT_AUDIO_SINK@";
   if (short.startsWith("mic") || short === "micmute") return "@DEFAULT_AUDIO_SOURCE@";
+  if (short === "steamgame") return (ctx && ctx.resolvedAppIds) || [];
   if (short.startsWith("app")) return (ctx && ctx.resolvedAppIds && ctx.resolvedAppIds.length > 0) ? ctx.resolvedAppIds : (settings && settings.app ? [settings.app] : []);
   if (short.startsWith("output")) return (ctx && ctx.resolvedOutputId) || (settings && settings.output);
   if (short.startsWith("input")) return (ctx && ctx.resolvedInputId) || (settings && settings.input);
@@ -704,14 +742,15 @@ function handleKeyDown(action, context, settings) {
   const target = resolveTarget(short, ctx, settings);
   const cb = () => afterAction(context);
   const step = (settings && settings.volumeStep) || 5;
-  const isApp = short.startsWith("app");
+  const isApp = isMultiStream(short);
 
   switch (short) {
     case "volume":
     case "micvolume":
     case "appvolume":
     case "outputvolume":
-    case "inputvolume": {
+    case "inputvolume":
+    case "steamgame": {
       if (settings && settings.direction === "mute") {
         if (isApp) {
           forEachTarget(target, (id, done) => pipewire.nodeMute(id, done), cb);
@@ -760,7 +799,7 @@ function handleDialRotate(action, context, settings, ticks) {
   const step = Math.abs(ticks) * stepBase;
   const change = `${ticks > 0 ? "+" : "-"}${step}%`;
   const cb = () => afterAction(context);
-  if (short.startsWith("app")) {
+  if (isMultiStream(short)) {
     forEachTarget(target, (id, done) => pipewire.nodeVolume(id, change, done), cb);
   } else {
     pipewire.nodeVolume(target, change, cb);
@@ -774,7 +813,7 @@ function handleDialPress(action, context, settings) {
   const cb = () => afterAction(context);
   if (short === "switchoutput" || short === "switchinput") {
     pipewire.setDefault(target, cb);
-  } else if (short.startsWith("app")) {
+  } else if (isMultiStream(short)) {
     forEachTarget(target, (id, done) => pipewire.nodeMute(id, done), cb);
   } else {
     pipewire.nodeMute(target, cb);
@@ -879,11 +918,22 @@ function cleanup() {
   }
 }
 
+// --- Stale input replay guard ---
+// OpenDeck queues events sent while a plugin is not connected and replays the whole
+// queue on every registration without ever clearing it. Old dialDown/touchTap/keyDown
+// events would then be re-applied on each plugin (re)install or restart, e.g. toggling
+// master mute. The replay arrives as one burst immediately after registering, so
+// ignore user-input events received within a short window after registration.
+const REPLAY_GUARD_MS = 750;
+const INPUT_EVENTS = new Set(["keyDown", "keyUp", "dialDown", "dialUp", "dialRotate", "touchTap"]);
+let inputAcceptedAfter = Infinity;
+
 // --- WebSocket connection ---
 const ws = new WebSocket(`ws://localhost:${port}`);
 
 ws.on("open", () => {
   // Register this plugin with OpenDeck
+  inputAcceptedAfter = Date.now() + REPLAY_GUARD_MS;
   send({ event: registerEvent, uuid: pluginUUID });
   console.log(`Plugin registered: ${pluginUUID}`);
   startMonitor();
@@ -898,6 +948,11 @@ ws.on("message", (raw) => {
   }
 
   const { event, action, context, payload } = msg;
+
+  if (INPUT_EVENTS.has(event) && Date.now() < inputAcceptedAfter) {
+    console.log(`Ignoring replayed ${event} for ${action} received right after registration`);
+    return;
+  }
 
   switch (event) {
     case "willAppear": {
@@ -975,6 +1030,11 @@ ws.on("message", (raw) => {
       if (payload && payload.request === "getSinkList") {
         pipewire.getSinkList((sinks) => {
           sendToPropertyInspector(context, { event: "sinkList", sinks });
+        });
+      }
+      if (payload && payload.request === "getSteamGame") {
+        steam.getRunningGame((game) => {
+          sendToPropertyInspector(context, { event: "steamGame", game });
         });
       }
       if (payload && payload.request === "getSourceList") {
